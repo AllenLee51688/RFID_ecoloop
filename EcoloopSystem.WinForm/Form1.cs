@@ -1,0 +1,353 @@
+using System;
+using System.Drawing;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Windows.Forms;
+
+namespace EcoloopSystem.WinForm
+{
+    public partial class Form1 : Form
+    {
+        private readonly HttpClient _httpClient;
+        private readonly RFIDReader _rfidReader;
+        private System.Windows.Forms.Timer _scanTimer;
+        private string? _currentCardUid = null;
+        private bool _isScanning = false;
+        private int? _currentUserId = null;
+
+        // 讀卡參數 (固定值)
+        private const int SECTOR = 0;
+        private const int BLOCK = 0;
+        private const string KEY_TYPE = "A";
+        private const string LOAD_KEY = "FFFFFFFFFFFF";
+
+        // 測試用餐具資料
+        private readonly string[] _testTablewares = {
+            "TW001A2B3C",
+            "TW002D4E5F", 
+            "TW003G7H8I",
+            "TW004J0K1L",
+            "TW005M2N3O"
+        };
+
+        public Form1()
+        {
+            InitializeComponent();
+            
+            _httpClient = new HttpClient();
+            _httpClient.BaseAddress = new Uri("http://localhost:5035");
+            _rfidReader = new RFIDReader();
+
+            // 初始化掃描計時器
+            _scanTimer = new System.Windows.Forms.Timer();
+            _scanTimer.Interval = 1000; // 每 1 秒掃描一次
+            _scanTimer.Tick += ScanTimer_Tick;
+
+            InitializeTestTablewares();
+        }
+
+        private void InitializeTestTablewares()
+        {
+            cmbTestTableware.Items.Clear();
+            foreach (var tw in _testTablewares)
+            {
+                cmbTestTableware.Items.Add(tw);
+            }
+            cmbTestTableware.SelectedIndex = 0;
+        }
+
+        private void btnStartScan_Click(object? sender, EventArgs e)
+        {
+            if (_isScanning)
+            {
+                StopScanning();
+            }
+            else
+            {
+                StartScanning();
+            }
+        }
+
+        private void StartScanning()
+        {
+            _isScanning = true;
+            _currentCardUid = null;
+            _currentUserId = null;
+            btnStartScan.Text = "停止感應";
+            btnStartScan.BackColor = Color.LightCoral;
+            lblStatus.Text = "感應中...請放置卡片";
+            lblStatus.ForeColor = Color.Blue;
+            pnlRegister.Visible = false;
+            pnlBorrow.Visible = false;
+            _scanTimer.Start();
+            Log("開始感應卡片...");
+        }
+
+        private void StopScanning()
+        {
+            _isScanning = false;
+            _scanTimer.Stop();
+            btnStartScan.Text = "開始感應";
+            btnStartScan.BackColor = Color.LightGreen;
+            lblStatus.Text = "已停止感應";
+            lblStatus.ForeColor = Color.Gray;
+            Log("停止感應");
+        }
+        
+        private async void ScanTimer_Tick(object? sender, EventArgs e)
+        {
+            if (!_isScanning) return;
+
+            try
+            {
+                // 使用原本的讀取邏輯
+                string result = _rfidReader.ReadCardUID();
+                
+                if (!result.StartsWith("❌"))
+                {
+                    // 成功讀到卡片，暫停掃描
+                    _scanTimer.Stop();
+                    _currentCardUid = result;
+                    lblCardUid.Text = result;
+                    Log($"讀取到卡片: {result}");
+                    
+                    // 查詢是否已註冊
+                    await CheckCardRegistration(result);
+                }
+                else
+                {
+                    // 卡片離開或讀取失敗
+                    if (_currentCardUid != null)
+                    {
+                        Log("卡片已移開");
+                        _currentCardUid = null;
+                        _currentUserId = null;
+                        lblCardUid.Text = "---";
+                        lblStatus.Text = "感應中...請放置卡片";
+                        lblStatus.ForeColor = Color.Blue;
+                        pnlRegister.Visible = false;
+                        pnlBorrow.Visible = false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"掃描錯誤: {ex.Message}");
+            }
+        }
+
+        private async Task CheckCardRegistration(string cardUid)
+        {
+            try
+            {
+                lblStatus.Text = "查詢中...";
+                lblStatus.ForeColor = Color.Orange;
+
+                var response = await _httpClient.GetAsync($"api/users/check/{cardUid}");
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<CheckCardResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (result?.IsRegistered == true)
+                {
+                    _currentUserId = result.UserId;
+                    lblStatus.Text = $"歡迎回來！手機: {result.PhoneNumber}";
+                    lblStatus.ForeColor = Color.Green;
+                    pnlRegister.Visible = false;
+                    pnlBorrow.Visible = true;
+                    Log($"已註冊使用者，ID: {result.UserId}");
+                }
+                else
+                {
+                    _currentUserId = null;
+                    lblStatus.Text = "新卡片，請註冊";
+                    lblStatus.ForeColor = Color.Orange;
+                    pnlRegister.Visible = true;
+                    pnlBorrow.Visible = false;
+                    txtPhone.Text = "";
+                    txtPassword.Text = "";
+                    txtPhone.Focus();
+                    Log("卡片尚未註冊");
+                }
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = "查詢失敗";
+                lblStatus.ForeColor = Color.Red;
+                Log($"API 錯誤: {ex.Message}");
+            }
+        }
+
+        private async void btnRegister_Click(object? sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentCardUid))
+            {
+                MessageBox.Show("請先放置卡片", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string phone = txtPhone.Text.Trim();
+            string password = txtPassword.Text;
+
+            if (phone.Length < 10)
+            {
+                MessageBox.Show("請輸入正確的手機號碼（至少10碼）", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtPhone.Focus();
+                return;
+            }
+
+            if (password.Length < 4)
+            {
+                MessageBox.Show("密碼至少需要4個字元", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtPassword.Focus();
+                return;
+            }
+
+            try
+            {
+                btnRegister.Enabled = false;
+                lblStatus.Text = "註冊中...";
+
+                var request = new { CardId = _currentCardUid, PhoneNumber = phone, Password = password };
+                var response = await _httpClient.PostAsJsonAsync("api/users/register", request);
+                var json = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    lblStatus.Text = "註冊成功！";
+                    lblStatus.ForeColor = Color.Green;
+                    Log($"註冊成功: {phone}");
+                    MessageBox.Show("註冊成功！現在可以租借餐具了。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    
+                    // 註冊成功後重新開始感應
+                    ResumeScanning();
+                }
+                else
+                {
+                    var error = JsonSerializer.Deserialize<ApiResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    lblStatus.Text = "註冊失敗";
+                    lblStatus.ForeColor = Color.Red;
+                    Log($"註冊失敗: {error?.Message}");
+                    MessageBox.Show(error?.Message ?? "註冊失敗", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = "註冊失敗";
+                lblStatus.ForeColor = Color.Red;
+                Log($"錯誤: {ex.Message}");
+                MessageBox.Show($"錯誤: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnRegister.Enabled = true;
+            }
+        }
+
+        private async void btnBorrow_Click(object? sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentCardUid))
+            {
+                MessageBox.Show("請先放置卡片", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string tablewareId = cmbTestTableware.SelectedItem?.ToString() ?? "";
+            if (string.IsNullOrEmpty(tablewareId))
+            {
+                MessageBox.Show("請選擇餐具", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                btnBorrow.Enabled = false;
+                lblStatus.Text = "處理租借中...";
+
+                var request = new { CardId = _currentCardUid, TablewareTagId = tablewareId };
+                var response = await _httpClient.PostAsJsonAsync("api/rentals/borrow", request);
+                var json = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    lblStatus.Text = "租借成功！";
+                    lblStatus.ForeColor = Color.Green;
+                    Log($"租借成功: 餐具 {tablewareId}");
+                    MessageBox.Show($"租借成功！\n餐具: {tablewareId}", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    
+                    // 租借成功後重新開始感應
+                    ResumeScanning();
+                }
+                else
+                {
+                    lblStatus.Text = "租借失敗";
+                    lblStatus.ForeColor = Color.Red;
+                    Log($"租借失敗: {json}");
+                    MessageBox.Show($"租借失敗: {json}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = "租借失敗";
+                lblStatus.ForeColor = Color.Red;
+                Log($"錯誤: {ex.Message}");
+                MessageBox.Show($"錯誤: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnBorrow.Enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// 恢復掃描，清除目前卡片狀態
+        /// </summary>
+        private void ResumeScanning()
+        {
+            _currentCardUid = null;
+            _currentUserId = null;
+            lblCardUid.Text = "---";
+            lblStatus.Text = "感應中...請放置卡片";
+            lblStatus.ForeColor = Color.Blue;
+            pnlRegister.Visible = false;
+            pnlBorrow.Visible = false;
+            
+            if (_isScanning)
+            {
+                _scanTimer.Start();
+                Log("繼續感應卡片...");
+            }
+        }
+
+        private void Log(string message)
+        {
+            string logMsg = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            lstLog.Items.Insert(0, logMsg);
+            if (lstLog.Items.Count > 100) lstLog.Items.RemoveAt(100);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            _scanTimer?.Stop();
+            _scanTimer?.Dispose();
+            _rfidReader?.Disconnect();
+            _httpClient?.Dispose();
+            base.OnFormClosed(e);
+        }
+    }
+
+    public class CheckCardResponse
+    {
+        public bool IsRegistered { get; set; }
+        public int? UserId { get; set; }
+        public string? PhoneNumber { get; set; }
+        public DateTime? RegisteredAt { get; set; }
+        public string? Message { get; set; }
+    }
+
+    public class ApiResponse
+    {
+        public bool Success { get; set; }
+        public string? Message { get; set; }
+    }
+}
