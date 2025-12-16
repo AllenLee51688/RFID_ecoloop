@@ -1,0 +1,9 @@
+﻿################################################################################
+# 這個 .gitignore 檔案由 Microsoft(R) Visual Studio 自動建立。
+################################################################################
+
+/EcoloopSystem.Server/obj
+/EcoloopSystem.Server/bin/Debug
+/EcoloopSystem.WinForm/bin/Debug/net8.0-windows
+/ecoloopsystem.web/obj/Debug
+/EcoloopSystem.WinForm/obj

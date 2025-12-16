@@ -22,15 +22,6 @@ namespace EcoloopSystem.WinForm
         private const string KEY_TYPE = "A";
         private const string LOAD_KEY = "FFFFFFFFFFFF";
 
-        // 測試用餐具資料
-        private readonly string[] _testTablewares = {
-            "TW001A2B3C",
-            "TW002D4E5F", 
-            "TW003G7H8I",
-            "TW004J0K1L",
-            "TW005M2N3O"
-        };
-
         public Form1()
         {
             InitializeComponent();
@@ -44,18 +35,11 @@ namespace EcoloopSystem.WinForm
             _scanTimer.Interval = 1000; // 每 1 秒掃描一次
             _scanTimer.Tick += ScanTimer_Tick;
 
-            InitializeTestTablewares();
+            // 載入餐具清單
+            LoadTablewaresAsync();
         }
 
-        private void InitializeTestTablewares()
-        {
-            cmbTestTableware.Items.Clear();
-            foreach (var tw in _testTablewares)
-            {
-                cmbTestTableware.Items.Add(tw);
-            }
-            cmbTestTableware.SelectedIndex = 0;
-        }
+        #region 租借分頁 - 會員卡感應
 
         private void btnStartScan_Click(object? sender, EventArgs e)
         {
@@ -156,6 +140,9 @@ namespace EcoloopSystem.WinForm
                     pnlRegister.Visible = false;
                     pnlBorrow.Visible = true;
                     Log($"已註冊使用者，ID: {result.UserId}");
+                    
+                    // 重新載入餐具清單
+                    await LoadTablewaresAsync();
                 }
                 else
                 {
@@ -252,8 +239,14 @@ namespace EcoloopSystem.WinForm
                 return;
             }
 
-            string tablewareId = cmbTestTableware.SelectedItem?.ToString() ?? "";
-            if (string.IsNullOrEmpty(tablewareId))
+            if (cmbTableware.SelectedItem == null)
+            {
+                MessageBox.Show("請選擇餐具", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var selectedItem = cmbTableware.SelectedItem as TablewareItem;
+            if (selectedItem == null)
             {
                 MessageBox.Show("請選擇餐具", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -264,7 +257,7 @@ namespace EcoloopSystem.WinForm
                 btnBorrow.Enabled = false;
                 lblStatus.Text = "處理租借中...";
 
-                var request = new { CardId = _currentCardUid, TablewareTagId = tablewareId };
+                var request = new { CardId = _currentCardUid, TablewareTagId = selectedItem.TagId };
                 var response = await _httpClient.PostAsJsonAsync("api/rentals/borrow", request);
                 var json = await response.Content.ReadAsStringAsync();
 
@@ -272,10 +265,11 @@ namespace EcoloopSystem.WinForm
                 {
                     lblStatus.Text = "租借成功！";
                     lblStatus.ForeColor = Color.Green;
-                    Log($"租借成功: 餐具 {tablewareId}");
-                    MessageBox.Show($"租借成功！\n餐具: {tablewareId}", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Log($"租借成功: 餐具 {selectedItem.TagId}");
+                    MessageBox.Show($"租借成功！\n餐具: {selectedItem.DisplayName}", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     
-                    // 租借成功後重新開始感應
+                    // 租借成功後重新載入餐具清單並繼續感應
+                    await LoadTablewaresAsync();
                     ResumeScanning();
                 }
                 else
@@ -296,6 +290,50 @@ namespace EcoloopSystem.WinForm
             finally
             {
                 btnBorrow.Enabled = true;
+            }
+        }
+
+        private async void btnRefreshTableware_Click(object? sender, EventArgs e)
+        {
+            await LoadTablewaresAsync();
+        }
+
+        private async Task LoadTablewaresAsync()
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync("api/tablewares");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var tablewares = JsonSerializer.Deserialize<TablewareDto[]>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    
+                    cmbTableware.Items.Clear();
+                    if (tablewares != null)
+                    {
+                        foreach (var tw in tablewares.Where(t => t.Status == "Available"))
+                        {
+                            cmbTableware.Items.Add(new TablewareItem
+                            {
+                                Id = tw.Id,
+                                TagId = tw.TagId,
+                                Type = tw.Type,
+                                Status = tw.Status
+                            });
+                        }
+                    }
+
+                    if (cmbTableware.Items.Count > 0)
+                    {
+                        cmbTableware.SelectedIndex = 0;
+                    }
+
+                    Log($"已載入 {cmbTableware.Items.Count} 個可用餐具");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"載入餐具清單失敗: {ex.Message}");
             }
         }
 
@@ -326,6 +364,115 @@ namespace EcoloopSystem.WinForm
             if (lstLog.Items.Count > 100) lstLog.Items.RemoveAt(100);
         }
 
+        #endregion
+
+        #region 餐具管理分頁 - 鍵盤輸入模式
+
+        /// <summary>
+        /// 處理餐具 UID 輸入框的按鍵事件
+        /// 許多讀卡機會在輸出完 UID 後發送 Enter 鍵
+        /// </summary>
+        private void txtTablewareUid_KeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                // 防止 Enter 鍵產生嗶聲
+                e.SuppressKeyPress = true;
+
+                string uid = txtTablewareUid.Text.Trim().ToUpperInvariant();
+                if (!string.IsNullOrEmpty(uid))
+                {
+                    TablewareLog($"讀取到 UID: {uid}");
+                }
+            }
+        }
+
+        private async void btnRegisterTableware_Click(object? sender, EventArgs e)
+        {
+            string uid = txtTablewareUid.Text.Trim().ToUpperInvariant();
+
+            if (string.IsNullOrEmpty(uid))
+            {
+                MessageBox.Show("請先掃描餐具貼紙，或手動輸入 UID", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtTablewareUid.Focus();
+                return;
+            }
+
+            // 驗證 UID 格式 (應為 HEX 字串)
+            if (!IsValidHexUid(uid))
+            {
+                MessageBox.Show("UID 格式不正確，應為 HEX 字串（例如：649B466C）", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtTablewareUid.Focus();
+                return;
+            }
+
+            if (cmbTablewareType.SelectedItem == null)
+            {
+                MessageBox.Show("請選擇餐具類型", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // 解析類型
+            string typeStr = cmbTablewareType.SelectedItem.ToString()!;
+            string type = typeStr.Split(' ')[0]; // "Bowl (碗)" -> "Bowl"
+
+            try
+            {
+                btnRegisterTableware.Enabled = false;
+                TablewareLog($"正在註冊餐具: {uid}, 類型: {type}");
+
+                var request = new { TagId = uid, Type = type };
+                var response = await _httpClient.PostAsJsonAsync("api/tablewares/register", request);
+                var json = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    TablewareLog($"✅ 註冊成功！");
+                    MessageBox.Show($"餐具註冊成功！\nUID: {uid}\n類型: {type}", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    
+                    // 清除輸入框，準備下一個
+                    txtTablewareUid.Clear();
+                    txtTablewareUid.Focus();
+                    
+                    // 重新載入餐具清單
+                    await LoadTablewaresAsync();
+                }
+                else
+                {
+                    var result = JsonSerializer.Deserialize<JsonElement>(json);
+                    string message = result.TryGetProperty("message", out var msgProp) ? msgProp.GetString() ?? json : json;
+                    TablewareLog($"❌ 註冊失敗: {message}");
+                    MessageBox.Show($"註冊失敗: {message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                TablewareLog($"❌ 錯誤: {ex.Message}");
+                MessageBox.Show($"錯誤: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnRegisterTableware.Enabled = true;
+            }
+        }
+
+        private bool IsValidHexUid(string uid)
+        {
+            if (string.IsNullOrEmpty(uid) || uid.Length < 4)
+                return false;
+
+            return uid.All(c => "0123456789ABCDEFabcdef".Contains(c));
+        }
+
+        private void TablewareLog(string message)
+        {
+            string logMsg = $"[{DateTime.Now:HH:mm:ss}] {message}";
+            lstTablewareLog.Items.Insert(0, logMsg);
+            if (lstTablewareLog.Items.Count > 100) lstTablewareLog.Items.RemoveAt(100);
+        }
+
+        #endregion
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _scanTimer?.Stop();
@@ -335,6 +482,8 @@ namespace EcoloopSystem.WinForm
             base.OnFormClosed(e);
         }
     }
+
+    #region DTOs
 
     public class CheckCardResponse
     {
@@ -350,4 +499,26 @@ namespace EcoloopSystem.WinForm
         public bool Success { get; set; }
         public string? Message { get; set; }
     }
+
+    public class TablewareDto
+    {
+        public int Id { get; set; }
+        public string TagId { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+    }
+
+    public class TablewareItem
+    {
+        public int Id { get; set; }
+        public string TagId { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+
+        public string DisplayName => $"{TagId} ({Type})";
+
+        public override string ToString() => DisplayName;
+    }
+
+    #endregion
 }
