@@ -32,12 +32,10 @@
         private TextBox txtPassword;
         private Button btnRegister;
 
-        // 租借分頁 - 租借面板
-        private Panel pnlBorrow;
-        private Label lblTableware;
-        private ComboBox cmbTableware;
-        private Button btnBorrow;
-        private Button btnRefreshTableware;
+        // 租借分頁 - 借/還面板（新設計）
+        private Panel pnlBorrowReturn;
+        private TextBox txtScanTableware;
+        private Label lblScanResult;
 
         // 餐具管理分頁 - 鍵盤輸入模式
         private GroupBox grpTablewareScan;
@@ -69,11 +67,9 @@
             txtPassword = new TextBox();
             btnRegister = new Button();
 
-            pnlBorrow = new Panel();
-            lblTableware = new Label();
-            cmbTableware = new ComboBox();
-            btnBorrow = new Button();
-            btnRefreshTableware = new Button();
+            pnlBorrowReturn = new Panel();
+            txtScanTableware = new TextBox();
+            lblScanResult = new Label();
 
             grpTablewareScan = new GroupBox();
             lblScanHint = new Label();
@@ -87,19 +83,19 @@
             tabBorrow.SuspendLayout();
             tabTablewareManage.SuspendLayout();
             pnlRegister.SuspendLayout();
-            pnlBorrow.SuspendLayout();
+            pnlBorrowReturn.SuspendLayout();
             grpTablewareScan.SuspendLayout();
             SuspendLayout();
 
             // ========== TabControl ==========
             tabMain.Location = new Point(10, 10);
-            tabMain.Size = new Size(680, 480);
+            tabMain.Size = new Size(680, 530);
             tabMain.Font = new Font("Microsoft JhengHei", 10F);
             tabMain.TabPages.Add(tabBorrow);
             tabMain.TabPages.Add(tabTablewareManage);
 
             // ========== 租借分頁 ==========
-            tabBorrow.Text = "會員感應 / 租借";
+            tabBorrow.Text = "借用 / 歸還";
             tabBorrow.Padding = new Padding(10);
             tabBorrow.BackColor = Color.WhiteSmoke;
 
@@ -114,13 +110,13 @@
 
             // 卡片 UID 顯示
             Label lblUidTitle = new Label();
-            lblUidTitle.Text = "卡片 UID:";
+            lblUidTitle.Text = "會員卡 UID:";
             lblUidTitle.Location = new Point(185, 20);
             lblUidTitle.AutoSize = true;
             lblUidTitle.Font = new Font("Microsoft JhengHei", 11F);
 
             lblCardUid.Text = "---";
-            lblCardUid.Location = new Point(275, 20);
+            lblCardUid.Location = new Point(290, 20);
             lblCardUid.Size = new Size(280, 25);
             lblCardUid.Font = new Font("Consolas", 14F, FontStyle.Bold);
             lblCardUid.ForeColor = Color.DarkBlue;
@@ -140,7 +136,7 @@
             pnlRegister.Visible = false;
 
             Label lblRegTitle = new Label();
-            lblRegTitle.Text = "新使用者註冊";
+            lblRegTitle.Text = "📝 新使用者註冊";
             lblRegTitle.Location = new Point(10, 8);
             lblRegTitle.AutoSize = true;
             lblRegTitle.Font = new Font("Microsoft JhengHei", 10F, FontStyle.Bold);
@@ -190,71 +186,64 @@
             pnlRegister.Controls.Add(btnRegister);
             pnlRegister.Controls.Add(lblRegHint);
 
-            // ========== 租借面板 ==========
-            pnlBorrow.Location = new Point(15, 80);
-            pnlBorrow.Size = new Size(635, 100);
-            pnlBorrow.BorderStyle = BorderStyle.FixedSingle;
-            pnlBorrow.BackColor = Color.LightCyan;
-            pnlBorrow.Visible = false;
+            // ========== 借/還面板（新設計）==========
+            pnlBorrowReturn.Location = new Point(15, 80);
+            pnlBorrowReturn.Size = new Size(635, 130);
+            pnlBorrowReturn.BorderStyle = BorderStyle.FixedSingle;
+            pnlBorrowReturn.BackColor = Color.LightCyan;
+            pnlBorrowReturn.Visible = false;
 
             Label lblBorrowTitle = new Label();
-            lblBorrowTitle.Text = "餐具租借";
+            lblBorrowTitle.Text = "🍽️ 餐具借用 / 歸還";
             lblBorrowTitle.Location = new Point(10, 8);
             lblBorrowTitle.AutoSize = true;
-            lblBorrowTitle.Font = new Font("Microsoft JhengHei", 10F, FontStyle.Bold);
+            lblBorrowTitle.Font = new Font("Microsoft JhengHei", 11F, FontStyle.Bold);
             lblBorrowTitle.ForeColor = Color.DarkCyan;
 
-            lblTableware.Text = "選擇餐具:";
-            lblTableware.Location = new Point(10, 45);
-            lblTableware.AutoSize = true;
-            lblTableware.Font = new Font("Microsoft JhengHei", 10F);
+            Label lblScanInstr = new Label();
+            lblScanInstr.Text = "請將餐具靠近第二台讀卡機掃描：";
+            lblScanInstr.Location = new Point(10, 40);
+            lblScanInstr.AutoSize = true;
+            lblScanInstr.Font = new Font("Microsoft JhengHei", 10F);
 
-            cmbTableware.Location = new Point(90, 42);
-            cmbTableware.Size = new Size(250, 25);
-            cmbTableware.DropDownStyle = ComboBoxStyle.DropDownList;
-            cmbTableware.Font = new Font("Microsoft JhengHei", 10F);
+            txtScanTableware.Location = new Point(10, 65);
+            txtScanTableware.Size = new Size(280, 30);
+            txtScanTableware.Font = new Font("Consolas", 14F, FontStyle.Bold);
+            txtScanTableware.ForeColor = Color.DarkGreen;
+            txtScanTableware.MaxLength = 20;
+            txtScanTableware.KeyDown += txtScanTableware_KeyDown;
 
-            btnRefreshTableware.Text = "重新整理";
-            btnRefreshTableware.Location = new Point(350, 40);
-            btnRefreshTableware.Size = new Size(85, 30);
-            btnRefreshTableware.BackColor = Color.LightGray;
-            btnRefreshTableware.FlatStyle = FlatStyle.Flat;
-            btnRefreshTableware.Font = new Font("Microsoft JhengHei", 9F);
-            btnRefreshTableware.Click += btnRefreshTableware_Click;
+            Button btnClearScan = new Button();
+            btnClearScan.Text = "清除";
+            btnClearScan.Location = new Point(300, 65);
+            btnClearScan.Size = new Size(60, 30);
+            btnClearScan.BackColor = Color.LightGray;
+            btnClearScan.FlatStyle = FlatStyle.Flat;
+            btnClearScan.Font = new Font("Microsoft JhengHei", 9F);
+            btnClearScan.Click += (s, e) => { txtScanTableware.Clear(); txtScanTableware.Focus(); lblScanResult.Text = ""; };
 
-            btnBorrow.Text = "確認租借";
-            btnBorrow.Location = new Point(450, 40);
-            btnBorrow.Size = new Size(100, 30);
-            btnBorrow.BackColor = Color.DeepSkyBlue;
-            btnBorrow.FlatStyle = FlatStyle.Flat;
-            btnBorrow.Font = new Font("Microsoft JhengHei", 9F, FontStyle.Bold);
-            btnBorrow.ForeColor = Color.White;
-            btnBorrow.Click += btnBorrow_Click;
+            lblScanResult.Text = "";
+            lblScanResult.Location = new Point(10, 100);
+            lblScanResult.Size = new Size(600, 25);
+            lblScanResult.Font = new Font("Microsoft JhengHei", 10F, FontStyle.Bold);
+            lblScanResult.ForeColor = Color.DarkGreen;
 
-            Label lblBorrowHint = new Label();
-            lblBorrowHint.Text = "※ 從資料庫讀取已註冊的餐具";
-            lblBorrowHint.Location = new Point(10, 75);
-            lblBorrowHint.AutoSize = true;
-            lblBorrowHint.Font = new Font("Microsoft JhengHei", 9F);
-            lblBorrowHint.ForeColor = Color.Gray;
-
-            pnlBorrow.Controls.Add(lblBorrowTitle);
-            pnlBorrow.Controls.Add(lblTableware);
-            pnlBorrow.Controls.Add(cmbTableware);
-            pnlBorrow.Controls.Add(btnRefreshTableware);
-            pnlBorrow.Controls.Add(btnBorrow);
-            pnlBorrow.Controls.Add(lblBorrowHint);
+            pnlBorrowReturn.Controls.Add(lblBorrowTitle);
+            pnlBorrowReturn.Controls.Add(lblScanInstr);
+            pnlBorrowReturn.Controls.Add(txtScanTableware);
+            pnlBorrowReturn.Controls.Add(btnClearScan);
+            pnlBorrowReturn.Controls.Add(lblScanResult);
 
             // 日誌區
             Label lblLogTitle = new Label();
             lblLogTitle.Text = "操作記錄";
-            lblLogTitle.Location = new Point(15, 195);
+            lblLogTitle.Location = new Point(15, 225);
             lblLogTitle.AutoSize = true;
             lblLogTitle.Font = new Font("Microsoft JhengHei", 9F);
             lblLogTitle.ForeColor = Color.Gray;
 
-            lstLog.Location = new Point(15, 215);
-            lstLog.Size = new Size(635, 220);
+            lstLog.Location = new Point(15, 245);
+            lstLog.Size = new Size(635, 245);
             lstLog.Font = new Font("Consolas", 9F);
 
             tabBorrow.Controls.Add(btnStartScan);
@@ -262,7 +251,7 @@
             tabBorrow.Controls.Add(lblCardUid);
             tabBorrow.Controls.Add(lblStatus);
             tabBorrow.Controls.Add(pnlRegister);
-            tabBorrow.Controls.Add(pnlBorrow);
+            tabBorrow.Controls.Add(pnlBorrowReturn);
             tabBorrow.Controls.Add(lblLogTitle);
             tabBorrow.Controls.Add(lstLog);
 
@@ -363,7 +352,7 @@
             lblTablewareLogTitle.ForeColor = Color.Gray;
 
             lstTablewareLog.Location = new Point(15, 245);
-            lstTablewareLog.Size = new Size(635, 190);
+            lstTablewareLog.Size = new Size(635, 245);
             lstTablewareLog.Font = new Font("Consolas", 9F);
 
             tabTablewareManage.Controls.Add(grpTablewareScan);
@@ -373,7 +362,7 @@
             // ========== Form 設定 ==========
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(700, 510);
+            ClientSize = new Size(700, 560);
             Controls.Add(tabMain);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -389,8 +378,8 @@
             tabTablewareManage.PerformLayout();
             pnlRegister.ResumeLayout(false);
             pnlRegister.PerformLayout();
-            pnlBorrow.ResumeLayout(false);
-            pnlBorrow.PerformLayout();
+            pnlBorrowReturn.ResumeLayout(false);
+            pnlBorrowReturn.PerformLayout();
             grpTablewareScan.ResumeLayout(false);
             grpTablewareScan.PerformLayout();
             ResumeLayout(false);

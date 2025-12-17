@@ -34,9 +34,6 @@ namespace EcoloopSystem.WinForm
             _scanTimer = new System.Windows.Forms.Timer();
             _scanTimer.Interval = 1000; // 每 1 秒掃描一次
             _scanTimer.Tick += ScanTimer_Tick;
-
-            // 載入餐具清單
-            LoadTablewaresAsync();
         }
 
         #region 租借分頁 - 會員卡感應
@@ -60,10 +57,10 @@ namespace EcoloopSystem.WinForm
             _currentUserId = null;
             btnStartScan.Text = "停止感應";
             btnStartScan.BackColor = Color.LightCoral;
-            lblStatus.Text = "感應中...請放置卡片";
+            lblStatus.Text = "感應中...請放置會員卡";
             lblStatus.ForeColor = Color.Blue;
             pnlRegister.Visible = false;
-            pnlBorrow.Visible = false;
+            pnlBorrowReturn.Visible = false;
             _scanTimer.Start();
             Log("開始感應卡片...");
         }
@@ -76,6 +73,7 @@ namespace EcoloopSystem.WinForm
             btnStartScan.BackColor = Color.LightGreen;
             lblStatus.Text = "已停止感應";
             lblStatus.ForeColor = Color.Gray;
+            pnlBorrowReturn.Visible = false;
             Log("停止感應");
         }
         
@@ -94,7 +92,7 @@ namespace EcoloopSystem.WinForm
                     _scanTimer.Stop();
                     _currentCardUid = result;
                     lblCardUid.Text = result;
-                    Log($"讀取到卡片: {result}");
+                    Log($"讀取到會員卡: {result}");
                     
                     // 查詢是否已註冊
                     await CheckCardRegistration(result);
@@ -104,14 +102,14 @@ namespace EcoloopSystem.WinForm
                     // 卡片離開或讀取失敗
                     if (_currentCardUid != null)
                     {
-                        Log("卡片已移開");
+                        Log("會員卡已移開");
                         _currentCardUid = null;
                         _currentUserId = null;
                         lblCardUid.Text = "---";
-                        lblStatus.Text = "感應中...請放置卡片";
+                        lblStatus.Text = "感應中...請放置會員卡";
                         lblStatus.ForeColor = Color.Blue;
                         pnlRegister.Visible = false;
-                        pnlBorrow.Visible = false;
+                        pnlBorrowReturn.Visible = false;
                     }
                 }
             }
@@ -135,14 +133,14 @@ namespace EcoloopSystem.WinForm
                 if (result?.IsRegistered == true)
                 {
                     _currentUserId = result.UserId;
-                    lblStatus.Text = $"歡迎回來！手機: {result.PhoneNumber}";
+                    lblStatus.Text = $"✅ 歡迎！手機: {result.PhoneNumber}，請感應餐具進行借用/歸還";
                     lblStatus.ForeColor = Color.Green;
                     pnlRegister.Visible = false;
-                    pnlBorrow.Visible = true;
-                    Log($"已註冊使用者，ID: {result.UserId}");
-                    
-                    // 重新載入餐具清單
-                    await LoadTablewaresAsync();
+                    pnlBorrowReturn.Visible = true;
+                    txtScanTableware.Clear();
+                    txtScanTableware.Focus();
+                    lblScanResult.Text = "";
+                    Log($"已註冊使用者，ID: {result.UserId}，等待感應餐具");
                 }
                 else
                 {
@@ -150,7 +148,7 @@ namespace EcoloopSystem.WinForm
                     lblStatus.Text = "新卡片，請註冊";
                     lblStatus.ForeColor = Color.Orange;
                     pnlRegister.Visible = true;
-                    pnlBorrow.Visible = false;
+                    pnlBorrowReturn.Visible = false;
                     txtPhone.Text = "";
                     txtPassword.Text = "";
                     txtPhone.Focus();
@@ -204,10 +202,10 @@ namespace EcoloopSystem.WinForm
                     lblStatus.Text = "註冊成功！";
                     lblStatus.ForeColor = Color.Green;
                     Log($"註冊成功: {phone}");
-                    MessageBox.Show("註冊成功！現在可以租借餐具了。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show("註冊成功！現在可以借用餐具了。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     
-                    // 註冊成功後重新開始感應
-                    ResumeScanning();
+                    // 註冊成功後重新查詢
+                    await CheckCardRegistration(_currentCardUid);
                 }
                 else
                 {
@@ -231,130 +229,161 @@ namespace EcoloopSystem.WinForm
             }
         }
 
-        private async void btnBorrow_Click(object? sender, EventArgs e)
+        #endregion
+
+        #region 自動借/還功能
+
+        /// <summary>
+        /// 處理餐具感應輸入框的按鍵事件
+        /// 當讀卡機輸入完 UID 並按下 Enter 時，自動執行借/還
+        /// </summary>
+        private async void txtScanTableware_KeyDown(object? sender, KeyEventArgs e)
         {
-            if (string.IsNullOrEmpty(_currentCardUid))
+            if (e.KeyCode == Keys.Enter)
             {
-                MessageBox.Show("請先放置卡片", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+                e.SuppressKeyPress = true; // 防止嗶聲
 
-            if (cmbTableware.SelectedItem == null)
-            {
-                MessageBox.Show("請選擇餐具", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+                string tablewareUid = txtScanTableware.Text.Trim().ToUpperInvariant();
+                if (string.IsNullOrEmpty(tablewareUid))
+                    return;
 
-            var selectedItem = cmbTableware.SelectedItem as TablewareItem;
-            if (selectedItem == null)
-            {
-                MessageBox.Show("請選擇餐具", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+                if (string.IsNullOrEmpty(_currentCardUid))
+                {
+                    lblScanResult.Text = "❌ 請先感應會員卡";
+                    lblScanResult.ForeColor = Color.Red;
+                    return;
+                }
 
+                await ProcessBorrowOrReturn(tablewareUid);
+            }
+        }
+
+        /// <summary>
+        /// 處理借用或歸還邏輯
+        /// </summary>
+        private async Task ProcessBorrowOrReturn(string tablewareUid)
+        {
             try
             {
-                btnBorrow.Enabled = false;
-                lblStatus.Text = "處理租借中...";
+                lblScanResult.Text = "處理中...";
+                lblScanResult.ForeColor = Color.Orange;
+                Log($"感應餐具: {tablewareUid}");
 
-                var request = new { CardId = _currentCardUid, TablewareTagId = selectedItem.TagId };
+                // 步驟1: 檢查餐具是否已註冊
+                var checkResponse = await _httpClient.GetAsync($"api/tablewares/check/{tablewareUid}");
+                var checkJson = await checkResponse.Content.ReadAsStringAsync();
+                var checkResult = JsonSerializer.Deserialize<TablewareCheckResponse>(checkJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (checkResult?.IsRegistered != true)
+                {
+                    lblScanResult.Text = "❌ 此餐具尚未註冊，請先到「餐具管理」分頁註冊";
+                    lblScanResult.ForeColor = Color.Red;
+                    Log($"餐具 {tablewareUid} 尚未註冊");
+                    ClearAndFocusScan();
+                    return;
+                }
+
+                // 步驟2: 根據餐具狀態決定借用或歸還
+                if (checkResult.Status == "Available")
+                {
+                    // 餐具可借用 → 執行租借
+                    await DoBorrow(tablewareUid);
+                }
+                else if (checkResult.Status == "Rented")
+                {
+                    // 餐具已被借用 → 執行歸還
+                    await DoReturn(tablewareUid);
+                }
+                else
+                {
+                    lblScanResult.Text = $"❌ 餐具狀態異常: {checkResult.Status}";
+                    lblScanResult.ForeColor = Color.Red;
+                    ClearAndFocusScan();
+                }
+            }
+            catch (Exception ex)
+            {
+                lblScanResult.Text = $"❌ 錯誤: {ex.Message}";
+                lblScanResult.ForeColor = Color.Red;
+                Log($"錯誤: {ex.Message}");
+                ClearAndFocusScan();
+            }
+        }
+
+        private async Task DoBorrow(string tablewareUid)
+        {
+            try
+            {
+                var request = new { CardId = _currentCardUid, TablewareTagId = tablewareUid };
                 var response = await _httpClient.PostAsJsonAsync("api/rentals/borrow", request);
                 var json = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
                 {
-                    lblStatus.Text = "租借成功！";
-                    lblStatus.ForeColor = Color.Green;
-                    Log($"租借成功: 餐具 {selectedItem.TagId}");
-                    MessageBox.Show($"租借成功！\n餐具: {selectedItem.DisplayName}", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    lblScanResult.Text = $"✅ 借用成功！餐具: {tablewareUid}";
+                    lblScanResult.ForeColor = Color.DarkGreen;
+                    Log($"✅ 借用成功: {tablewareUid}");
                     
-                    // 租借成功後重新載入餐具清單並繼續感應
-                    await LoadTablewaresAsync();
-                    ResumeScanning();
+                    // 短暫顯示成功訊息後清除
+                    await Task.Delay(1500);
+                    ClearAndFocusScan();
                 }
                 else
                 {
-                    lblStatus.Text = "租借失敗";
-                    lblStatus.ForeColor = Color.Red;
-                    Log($"租借失敗: {json}");
-                    MessageBox.Show($"租借失敗: {json}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    lblScanResult.Text = $"❌ 借用失敗: {json}";
+                    lblScanResult.ForeColor = Color.Red;
+                    Log($"借用失敗: {json}");
+                    ClearAndFocusScan();
                 }
             }
             catch (Exception ex)
             {
-                lblStatus.Text = "租借失敗";
-                lblStatus.ForeColor = Color.Red;
-                Log($"錯誤: {ex.Message}");
-                MessageBox.Show($"錯誤: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                btnBorrow.Enabled = true;
+                lblScanResult.Text = $"❌ 借用錯誤: {ex.Message}";
+                lblScanResult.ForeColor = Color.Red;
+                Log($"借用錯誤: {ex.Message}");
+                ClearAndFocusScan();
             }
         }
 
-        private async void btnRefreshTableware_Click(object? sender, EventArgs e)
-        {
-            await LoadTablewaresAsync();
-        }
-
-        private async Task LoadTablewaresAsync()
+        private async Task DoReturn(string tablewareUid)
         {
             try
             {
-                var response = await _httpClient.GetAsync("api/tablewares");
+                var request = new { TablewareTagId = tablewareUid };
+                var response = await _httpClient.PostAsJsonAsync("api/rentals/return", request);
+                var json = await response.Content.ReadAsStringAsync();
+
                 if (response.IsSuccessStatusCode)
                 {
-                    var json = await response.Content.ReadAsStringAsync();
-                    var tablewares = JsonSerializer.Deserialize<TablewareDto[]>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    lblScanResult.Text = $"✅ 歸還成功！餐具: {tablewareUid}";
+                    lblScanResult.ForeColor = Color.DarkBlue;
+                    Log($"✅ 歸還成功: {tablewareUid}");
                     
-                    cmbTableware.Items.Clear();
-                    if (tablewares != null)
-                    {
-                        foreach (var tw in tablewares.Where(t => t.Status == "Available"))
-                        {
-                            cmbTableware.Items.Add(new TablewareItem
-                            {
-                                Id = tw.Id,
-                                TagId = tw.TagId,
-                                Type = tw.Type,
-                                Status = tw.Status
-                            });
-                        }
-                    }
-
-                    if (cmbTableware.Items.Count > 0)
-                    {
-                        cmbTableware.SelectedIndex = 0;
-                    }
-
-                    Log($"已載入 {cmbTableware.Items.Count} 個可用餐具");
+                    // 短暫顯示成功訊息後清除
+                    await Task.Delay(1500);
+                    ClearAndFocusScan();
+                }
+                else
+                {
+                    lblScanResult.Text = $"❌ 歸還失敗: {json}";
+                    lblScanResult.ForeColor = Color.Red;
+                    Log($"歸還失敗: {json}");
+                    ClearAndFocusScan();
                 }
             }
             catch (Exception ex)
             {
-                Log($"載入餐具清單失敗: {ex.Message}");
+                lblScanResult.Text = $"❌ 歸還錯誤: {ex.Message}";
+                lblScanResult.ForeColor = Color.Red;
+                Log($"歸還錯誤: {ex.Message}");
+                ClearAndFocusScan();
             }
         }
 
-        /// <summary>
-        /// 恢復掃描，清除目前卡片狀態
-        /// </summary>
-        private void ResumeScanning()
+        private void ClearAndFocusScan()
         {
-            _currentCardUid = null;
-            _currentUserId = null;
-            lblCardUid.Text = "---";
-            lblStatus.Text = "感應中...請放置卡片";
-            lblStatus.ForeColor = Color.Blue;
-            pnlRegister.Visible = false;
-            pnlBorrow.Visible = false;
-            
-            if (_isScanning)
-            {
-                _scanTimer.Start();
-                Log("繼續感應卡片...");
-            }
+            txtScanTableware.Clear();
+            txtScanTableware.Focus();
         }
 
         private void Log(string message)
@@ -433,9 +462,6 @@ namespace EcoloopSystem.WinForm
                     // 清除輸入框，準備下一個
                     txtTablewareUid.Clear();
                     txtTablewareUid.Focus();
-                    
-                    // 重新載入餐具清單
-                    await LoadTablewaresAsync();
                 }
                 else
                 {
@@ -506,6 +532,16 @@ namespace EcoloopSystem.WinForm
         public string TagId { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
+    }
+
+    public class TablewareCheckResponse
+    {
+        public bool IsRegistered { get; set; }
+        public int? TablewareId { get; set; }
+        public string? TagId { get; set; }
+        public string? Type { get; set; }
+        public string? Status { get; set; }
+        public string Message { get; set; } = string.Empty;
     }
 
     public class TablewareItem
