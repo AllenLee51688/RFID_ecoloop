@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -10,6 +11,10 @@ namespace EcoloopSystem.WinForm
 {
     public partial class Form1 : Form
     {
+        // 強制輸入法為英文
+        [DllImport("imm32.dll")]
+        private static extern bool ImmDisableIME(int idThread);
+        
         private readonly HttpClient _httpClient;
         private readonly RFIDReader _rfidReader;
         private System.Windows.Forms.Timer _scanTimer;
@@ -38,6 +43,9 @@ namespace EcoloopSystem.WinForm
 
         public Form1()
         {
+            // 強制當前執行緒停用 IME（輸入法），確保鍵盤輸入為英文
+            ImmDisableIME(0);
+            
             InitializeComponent();
             
             _httpClient = new HttpClient();
