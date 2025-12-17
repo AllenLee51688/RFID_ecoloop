@@ -99,14 +99,14 @@
             tabBorrow.Padding = new Padding(10);
             tabBorrow.BackColor = Color.WhiteSmoke;
 
-            // 開始感應按鈕
-            btnStartScan.Text = "開始感應";
+            // 清除會員按鈕
+            btnStartScan.Text = "清除會員";
             btnStartScan.Location = new Point(15, 15);
-            btnStartScan.Size = new Size(150, 50);
-            btnStartScan.BackColor = Color.LightGreen;
+            btnStartScan.Size = new Size(120, 50);
+            btnStartScan.BackColor = Color.LightGray;
             btnStartScan.FlatStyle = FlatStyle.Flat;
-            btnStartScan.Font = new Font("Microsoft JhengHei", 12F, FontStyle.Bold);
-            btnStartScan.Click += btnStartScan_Click;
+            btnStartScan.Font = new Font("Microsoft JhengHei", 11F, FontStyle.Bold);
+            btnStartScan.Click += btnClearMember_Click;
 
             // 卡片 UID 顯示
             Label lblUidTitle = new Label();
@@ -122,11 +122,11 @@
             lblCardUid.ForeColor = Color.DarkBlue;
 
             // 狀態標籤
-            lblStatus.Text = "請按「開始感應」";
-            lblStatus.Location = new Point(185, 50);
-            lblStatus.Size = new Size(450, 25);
+            lblStatus.Text = "感應中...請放置會員卡，或直接感應餐具歸還";
+            lblStatus.Location = new Point(150, 50);
+            lblStatus.Size = new Size(500, 25);
             lblStatus.Font = new Font("Microsoft JhengHei", 10F);
-            lblStatus.ForeColor = Color.Gray;
+            lblStatus.ForeColor = Color.Blue;
 
             // ========== 註冊面板 ==========
             pnlRegister.Location = new Point(15, 80);
@@ -191,7 +191,7 @@
             pnlBorrowReturn.Size = new Size(635, 130);
             pnlBorrowReturn.BorderStyle = BorderStyle.FixedSingle;
             pnlBorrowReturn.BackColor = Color.LightCyan;
-            pnlBorrowReturn.Visible = false;
+            pnlBorrowReturn.Visible = true; // 永久顯示，隨時可感應餐具
 
             Label lblBorrowTitle = new Label();
             lblBorrowTitle.Text = "🍽️ 餐具借用 / 歸還";
@@ -212,6 +212,7 @@
             txtScanTableware.ForeColor = Color.DarkGreen;
             txtScanTableware.MaxLength = 20;
             txtScanTableware.KeyDown += txtScanTableware_KeyDown;
+            txtScanTableware.TextChanged += txtScanTableware_TextChanged;
 
             Button btnClearScan = new Button();
             btnClearScan.Text = "清除";
@@ -370,6 +371,7 @@
             Text = "Ecoloop 環保餐具租借系統";
             Font = new Font("Microsoft JhengHei", 9F);
             BackColor = Color.WhiteSmoke;
+            KeyPreview = true; // 啟用全局鍵盤捕捉，用於接收餐具讀卡機輸入
 
             tabMain.ResumeLayout(false);
             tabBorrow.ResumeLayout(false);
