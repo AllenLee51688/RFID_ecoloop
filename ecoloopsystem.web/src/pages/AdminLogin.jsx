@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 
-function Login() {
-    const [phone, setPhone] = useState('');
+function AdminLogin() {
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -15,13 +15,15 @@ function Login() {
         setLoading(true);
 
         try {
-            const response = await api.post('/users/login', {
-                phoneNumber: phone,
+            const response = await api.post('/admin/login', {
+                username: username,
                 password: password
             });
 
             if (response.data.success) {
-                navigate(`/history/${phone}`);
+                // 儲存登入狀態
+                sessionStorage.setItem('adminLoggedIn', 'true');
+                navigate('/admin/dashboard');
             }
         } catch (err) {
             console.error(err);
@@ -34,8 +36,8 @@ function Login() {
 
     return (
         <div className="card">
-            <h1>Ecoloop 會員登入</h1>
-            <p>請輸入手機號碼和密碼以查詢租借紀錄。</p>
+            <h1>🔐 管理員登入</h1>
+            <p>請輸入管理員帳號密碼。</p>
 
             {error && (
                 <div className="error-message" style={{
@@ -51,12 +53,12 @@ function Login() {
 
             <form onSubmit={handleSubmit}>
                 <div className="form-group">
-                    <label>手機號碼</label>
+                    <label>帳號</label>
                     <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="0912345678"
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="admin"
                         required
                     />
                 </div>
@@ -76,13 +78,10 @@ function Login() {
             </form>
 
             <p style={{ marginTop: '20px', fontSize: '14px', color: '#666' }}>
-                尚未註冊？請前往服務據點進行卡片註冊。
-            </p>
-            <p style={{ marginTop: '10px', fontSize: '12px' }}>
-                <a href="/admin" style={{ color: '#6c757d' }}>管理員登入 →</a>
+                <a href="/" style={{ color: '#007bff' }}>← 返回會員登入</a>
             </p>
         </div>
     );
 }
 
-export default Login;
+export default AdminLogin;
